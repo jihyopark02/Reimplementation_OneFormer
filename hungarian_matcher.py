@@ -11,8 +11,8 @@ class HungarianMatcher(nn.Module):
 
     def forward(self, outputs, targets):
         # Retrieve the output and target tensors for classification, mask, and dice
-        pred_logits = outputs['pred_logits']  # [batch_size, num_queries, num_classes]
-        pred_masks = outputs['pred_masks']    # [batch_size, num_queries, H, W]
+        pred_logits = outputs['pred_logits']  # Expected [batch_size, num_queries, num_classes]
+        pred_masks = outputs['pred_masks']    # Expected [batch_size, num_queries, H, W]
         target_labels = [t['labels'] for t in targets]  # List of target labels for each batch
 
         # Only get masks if they exist, otherwise set to None
@@ -22,39 +22,29 @@ class HungarianMatcher(nn.Module):
         indices = []
 
         for i in range(batch_size):
-            # Flatten the logits for matching
-            pred_logits_i = pred_logits[i]  # [num_queries, num_classes]
-            target_labels_i = target_labels[i]  # [num_targets]
+            # Flatten logits and ensure correct shape
+            pred_logits_i = pred_logits[i]
+            if pred_logits_i.dim() == 1:  # Expand if needed
+                pred_logits_i = pred_logits_i.unsqueeze(0)
 
-            # Check if mask exists
+            # Flatten target labels and remove duplicates
+            target_labels_i = target_labels[i].flatten().unique()  # Extract unique class labels
+            num_targets = target_labels_i.size(0)
+
+            # Initialize one-hot encoding for classification cost
+            target_classes_onehot = torch.zeros((num_targets, pred_logits_i.size(-1)), device=pred_logits.device)
+            for j, label in enumerate(target_labels_i):
+                if label < pred_logits_i.size(-1):  # Ensure label is within bounds
+                    target_classes_onehot[j, label.item()] = 1
+
+            # Compute classification cost
+            class_cost = -torch.matmul(pred_logits_i, target_classes_onehot.T)  # [num_queries, num_targets]
+
+            # If there are no target masks, skip mask and dice cost
             if target_masks[i] is None:
-                # Skip mask and dice cost calculation if there is no mask
-                # Ensure `target_labels_i` is correctly shaped for multiplication
-                if target_labels_i.dim() == 1:
-                    target_labels_i = target_labels_i.unsqueeze(0)  # [1, num_targets]
-                
-                # One-hot encoding for classification cost with compatible shapes
-                target_classes_onehot = torch.zeros_like(pred_logits_i)  # [num_queries, num_classes]
-                
-                # Scatter to get one-hot encoding of target labels
-                for j, label in enumerate(target_labels_i.squeeze(0)):
-                    target_classes_onehot[j, label] = 1  # Set the correct positions in one-hot format
-                
-                # Compute classification cost
-                class_cost = -torch.matmul(pred_logits_i, target_classes_onehot.T)  # [num_queries, num_targets]
-                
-                # Use only the classification cost when no mask is available
                 total_cost = self.cost_class * class_cost
             else:
                 # Compute costs as usual when masks are available
-
-                # Ensure one-hot encoding of target labels is compatible with pred_logits_i
-                target_classes_onehot = torch.zeros_like(pred_logits_i)  # [num_queries, num_classes]
-                for j, label in enumerate(target_labels_i):
-                    target_classes_onehot[j, label] = 1  # Populate one-hot encoding for each target
-
-                # Compute classification cost
-                class_cost = -torch.einsum("qc,qc->q", pred_logits_i, target_classes_onehot)
 
                 # Mask cost computation
                 pred_masks_i = pred_masks[i].flatten(1)  # [num_queries, H*W]
@@ -71,11 +61,13 @@ class HungarianMatcher(nn.Module):
                 # Combine costs
                 total_cost = self.cost_class * class_cost.unsqueeze(-1) + self.cost_mask * mask_cost + self.cost_dice * dice_cost
 
-        # Perform Hungarian matching
-        row_ind, col_ind = linear_sum_assignment(total_cost.cpu().detach().numpy())
-        indices.append((torch.as_tensor(row_ind, dtype=torch.int64), torch.as_tensor(col_ind, dtype=torch.int64)))
-
+            # Perform Hungarian matching
+            row_ind, col_ind = linear_sum_assignment(total_cost.cpu().detach().numpy())
+            indices.append((torch.as_tensor(row_ind, dtype=torch.int64), torch.as_tensor(col_ind, dtype=torch.int64)))
 
         return indices
+
+
+
 
 

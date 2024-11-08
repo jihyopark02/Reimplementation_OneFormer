@@ -1,5 +1,5 @@
-import torch.nn as nn
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 
 class ContrastiveLoss(nn.Module):
@@ -7,28 +7,29 @@ class ContrastiveLoss(nn.Module):
         super(ContrastiveLoss, self).__init__()
         self.temperature = temperature
 
-    def forward(self, q_text):
-        """
-        q_text: Tensor of shape [batch_size, 3, embed_dim], where 3 is the number of task types
-        """
+    def forward(self, q_text, q_task):
+        # Expand q_text to match q_task's batch size if necessary
+        if q_text.size(0) == 1:
+            q_text = q_text.expand(q_task.size(0), -1, -1)  # Adjust q_text to [batch_size, num_tasks, embed_dim]
+
+        # Normalize embeddings
+        q_text = F.normalize(q_text, dim=-1)
+        q_task = F.normalize(q_task, dim=-1)
+
         batch_size, num_tasks, embed_dim = q_text.size()
+        _, num_queries, _ = q_task.size()
         
-        # Normalize each embedding vector to unit length
-        q_text = F.normalize(q_text, dim=-1)  # Shape: [batch_size, 3, embed_dim]
+        # Reshape for pairwise comparison
+        q_text = q_text.reshape(batch_size * num_tasks, embed_dim)
+        q_task = q_task.reshape(batch_size * num_queries, embed_dim)
 
-        # Reshape q_text for contrastive pairwise comparison
-        q_text = q_text.view(batch_size * num_tasks, embed_dim)  # Shape: [batch_size * 3, embed_dim]
-        
         # Compute similarity matrix
-        sim_matrix = torch.matmul(q_text, q_text.T) / self.temperature  # Shape: [batch_size * 3, batch_size * 3]
+        sim_matrix = torch.matmul(q_text, q_task.T) / self.temperature  # Shape: [batch_size * num_tasks, batch_size * num_queries]
 
-        # Create labels for contrastive learning: similar tasks have the same index
-        labels = torch.arange(batch_size).repeat_interleave(num_tasks).to(q_text.device)
+        # Create labels for contrastive loss
+        labels = torch.arange(batch_size * num_tasks).to(q_text.device)
 
-        # Mask to avoid self-similarity in contrastive pairs
-        mask = torch.eye(batch_size * num_tasks, dtype=torch.bool, device=q_text.device)
-        sim_matrix = sim_matrix.masked_fill(mask, float('-inf'))
-
-        # Compute cross-entropy loss
+        # Compute cross-entropy loss without masking self-similarity
         loss = F.cross_entropy(sim_matrix, labels)
         return loss
+
