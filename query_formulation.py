@@ -10,8 +10,8 @@ class TaskConditionedQueryFormulator(nn.Module):
         self.task_mlp = TaskMLP(embed_dim, embed_dim, embed_dim)
 
     def forward(self, task_embed, batch_size):
-        task_embed = self.task_mlp(task_embed)  # Process task embedding with MLP
-        task_embed = task_embed.mean(dim=1, keepdim=True)  # Aggregate across sequence
+        task_embed = self.task_mlp(task_embed)
+        task_embed = task_embed.mean(dim=1, keepdim=True)
         queries = self.query_embed.weight.unsqueeze(1).repeat(1, batch_size, 1)
-        task_conditioned_queries = queries + task_embed.permute(1, 0, 2).repeat(self.num_queries, 1, 1)  # Condition queries on task
-        return task_conditioned_queries  # Shape: [num_queries, batch_size, embed_dim]
+        task_conditioned_queries = queries + task_embed.permute(1, 0, 2).repeat(self.num_queries, 1, 1)
+        return task_conditioned_queries

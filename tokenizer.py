@@ -9,13 +9,10 @@ class TaskTokenizer:
         self.tokenizer = nn.Embedding(self.vocab_size, self.embed_dim)
 
     def forward(self, task_texts):
-        # Assuming task_texts is a list of strings ["panoptic", "instance", "semantic"]
         token_ids = [self._tokenize(text) for text in task_texts]
-        token_ids = torch.tensor(token_ids)  # Shape: [batch_size, max_seq_len]
-        return self.tokenizer(token_ids)  # Shape: [batch_size, max_seq_len, embed_dim]
+        token_ids = torch.tensor(token_ids) 
+        return self.tokenizer(token_ids)  
 
     def _tokenize(self, text):
-        # Simple tokenizer to map text to indices (this is a placeholder)
-        # In practice, you'd use a tokenizer from Hugging Face or similar
         token_id = min(sum(ord(c) for c in text) % self.vocab_size, self.vocab_size - 1)
         return [token_id] * self.max_seq_len
