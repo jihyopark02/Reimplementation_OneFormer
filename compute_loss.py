@@ -44,9 +44,7 @@ class SetCriterion(nn.Module):
         else:
             # Skip mask loss if masks are not available
             loss_mask = torch.tensor(0.0, device=src_logits.device)
-            #print("No masks found in targets; skipping mask loss calculation.")
 
-        # Aggregate losses
         losses = {"loss_ce": loss_ce, "loss_mask": loss_mask}
         
         return losses
